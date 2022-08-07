@@ -10,8 +10,7 @@ src/contracts
 # testing
 /coverage
 
-# production - comentadoo para mandarlo al repo de GITHUB
-#/build
+# production - comentadoo para mandarlo al repo de GITHUB #/build
 
 # misc
 .DS_Store
