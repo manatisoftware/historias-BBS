@@ -1,12 +1,17 @@
 import React from "react";
 
+import '../styles.css';
+
 // We'll use ethers to interact with the Ethereum network and our contract
 import { ethers } from "ethers";
 
 // We import the contract's artifacts and address here, as we are going to be
 // using them with ethers
-import TokenArtifact from "../contracts/Token.json";
-import contractAddress from "../contracts/contract-address.json";
+import ContractArtifact from "../contracts/contract-abi.json";
+import ContractAddress from "../contracts/contract-address.json";
+
+import TokenArtifact from "../contracts/TokenJJTONABI.json";
+import TokenAddress from "../contracts/contract-address-JJTON.json";
 
 // All the logic of this dapp is contained in the Dapp component.
 // These other components are just presentational ones: they don't have any
@@ -16,6 +21,7 @@ import { ConnectWallet } from "./ConnectWallet";
 import { Loading } from "./Loading";
 import { Transfer } from "./Transfer";
 import { Contenido } from "./Contenido";
+import { ContenidoNuevo } from "./ContenidoNuevo";
 import { TransactionErrorMessage } from "./TransactionErrorMessage";
 import { WaitingForTransactionMessage } from "./WaitingForTransactionMessage";
 import { NoTokensMessage } from "./NoTokensMessage";
@@ -45,16 +51,16 @@ export class Dapp extends React.Component {
     // We store multiple things in Dapp's state.
     // You don't need to follow this pattern, but it's an useful example.
     this.initialState = {
-      // The info of the token (i.e. It's Name and symbol)
-      tokenData: undefined,
+      // The info of the contract data for DApp for all contracts (i.e. It's Name and token Symbol)
+      contractData: undefined,
       // The user's address and balance
       selectedAddress: undefined,
       balance: undefined,
-      contenido: undefined,
       // The ID about transactions being sent, and any possible error with them
       txBeingSent: undefined,
       transactionError: undefined,
       networkError: undefined,
+      paragraphs: [],
     };
 
     this.state = this.initialState;
@@ -86,7 +92,7 @@ export class Dapp extends React.Component {
 
     // If the token data or the user's balance hasn't loaded yet, we show
     // a loading component.
-    if (!this.state.tokenData || !this.state.balance) {
+    if (!this.state.contractData || !this.state.balance) {
       return <Loading />;
     }
 
@@ -96,17 +102,14 @@ export class Dapp extends React.Component {
         <div className="row">
           <div className="col-12">
             <h1>
-              {this.state.tokenData.name} ({this.state.tokenData.symbol})
+              {this.state.contractData.name}
             </h1>
             <p>
-              Welcome <b>{this.state.selectedAddress}</b>, you have{" "}
+               Bienvenido <b>{this.state.selectedAddress}</b>, tienes{" "}
               <b>
-                {this.state.balance.toString()} {this.state.tokenData.symbol}
+                {ethers.utils.formatUnits(this.state.balance,18)} {this.state.contractData.symbol}
               </b>
               .
-            </p>
-            <p>
-              El contenido del contrato es: <b>{this.state.contenido}</b>
             </p>
           </div>
         </div>
@@ -140,31 +143,37 @@ export class Dapp extends React.Component {
         <div className="row">
           <div className="col-12">
             {/*
-              If the user has no tokens, we don't show the Transfer form
-            */}
-            {this.state.balance.eq(0) && (
-              <NoTokensMessage selectedAddress={this.state.selectedAddress} />
-            )}
-
-            {/*
               This component displays a form that the user can use to send a 
               transaction and transfer some tokens.
               The component doesn't have logic, it just calls the transferTokens
               callback.
             */}
+            {
+              <Contenido paragraphs={this.state.paragraphs} />
+            }
+            {/*
+              Si el usuario no tiene tokens se le muestra un mensaje al respecto.
+            */}
+
+            <hr />
+
+            {/*
+              Mensaje cuando no tiene tokens, explicación de cómo obtenerlos aunque sea informalmente.
+            */}
+            {
+              this.state.balance.eq(0) && (
+              <NoTokensMessage selectedAddress={this.state.selectedAddress} />
+              )
+            }
+            {/*
+              Aparece la opción de generar nuevo contenido solo si tienes tokens JJTON.
+            */}
             {this.state.balance.gt(0) && (
-              <Transfer
-                transferTokens={(to, amount) =>
-                  this._transferTokens(to, amount)
-                }
-                tokenSymbol={this.state.tokenData.symbol}
+              <ContenidoNuevo
+                setContent={(story, content) =>
+                  this._setContent(story, content)}
               />
-            )}
-             <Contenido
-                setContenido={(contenido) =>
-                  this._setContenido(contenido)
-                }
-              />
+              )}
           </div>
         </div>
       </div>
@@ -229,7 +238,8 @@ export class Dapp extends React.Component {
     // Fetching the token data and the user's balance are specific to this
     // sample project, but you can reuse the same initialization pattern.
     this._initializeEthers();
-    this._getTokenData();
+    this._getContractData();
+    this._updateBalance();
     this._startPollingData();
   }
 
@@ -239,11 +249,32 @@ export class Dapp extends React.Component {
 
     // Then, we initialize the contract using that provider and the token's
     // artifact. You can do this same thing with your contracts.
+    this._contract = new ethers.Contract(
+      ContractAddress.Contract,
+      ContractArtifact.abi,
+      this._provider.getSigner(0)
+    );
+
     this._token = new ethers.Contract(
-      contractAddress.Token,
+      TokenAddress.Token,
       TokenArtifact.abi,
       this._provider.getSigner(0)
     );
+    
+    const iface = new ethers.utils.Interface(ContractArtifact.abi);
+    let paragraphs = [];
+    const filterStories = this._contract.filters.NewContent(17, null);
+    this._provider.on(filterStories, (log)=> {
+      const content = iface.parseLog(log);
+      console.log('NewContent', content);
+      const newList = paragraphs.concat({content: content.args._content, author:content.args._author});
+      paragraphs = newList;
+      console.log("list:", paragraphs);
+      this.setState(
+        { paragraphs }
+      )
+    })
+
   }
 
   // The next two methods are needed to start and stop polling data. While
@@ -267,24 +298,21 @@ export class Dapp extends React.Component {
 
   // The next two methods just read from the contract and store the results
   // in the component state.
-  async _getTokenData() {
-    const name = await this._token.name();
+  async _getContractData() {
+    const name = await this._contract.name();
     const symbol = await this._token.symbol();
-    const contenido = await this._token.getContenido();
-
-    this.setState({ tokenData: { name, symbol }, contenido });
+    this.setState({ contractData: { name, symbol } });
   }
 
   async _updateBalance() {
     const balance = await this._token.balanceOf(this.state.selectedAddress);
-    const contenido = await this._token.getContenido();
-    this.setState({ balance, contenido });
+    this.setState({ balance });
   }
 
-  async _setContenido(contenido) {
+  async _setContent(story, content) {
     try {
       this._dismissTransactionError();
-      const tx = await this._token.setContenido(contenido);
+      const tx = await this._contract.setContent(story, content);
       this.setState({ txBeingSent: tx.hash });
       const receipt = await tx.wait();
       if (receipt.status === 0) {
@@ -292,11 +320,20 @@ export class Dapp extends React.Component {
         // was mined, so we throw this generic one.
         throw new Error("Transaction failed");
       }
-
     } catch (error) {
-
+      // We check the error code to see if this error was produced because the
+      // user rejected a tx. If that's the case, we do nothing.
+      if (error.code === ERROR_CODE_TX_REJECTED_BY_USER) {
+        return;
+      }
+      // Other errors are logged and stored in the Dapp's state. This is used to
+      // show them to the user, and for debugging.
+      console.error(error);
+      this.setState({ transactionError: error });
     } finally {
-
+       // If we leave the try/catch, we aren't sending a tx anymore, so we clear
+      // this part of the state.
+      this.setState({ txBeingSent: undefined });
     }
 
   }

@@ -1,6 +1,6 @@
 // This is a script for deploying your contracts. You can adapt it to deploy
 // yours, or create new ones.
-
+const { ethers, upgrades } = require('hardhat');
 const path = require("path");
 
 async function main() {
@@ -22,17 +22,18 @@ async function main() {
 
   console.log("Account balance:", (await deployer.getBalance()).toString());
 
-  const Token = await ethers.getContractFactory("Token");
-  const token = await Token.deploy();
-  await token.deployed();
+  const BBSStories = await ethers.getContractFactory("BBSStories");
+  //const contract = await BBSStories.deploy();
+  const contract = await upgrades.deployProxy(BBSStories, undefined, { initializer: 'initialize' });
+  await contract.deployed();
 
-  console.log("Token address:", token.address);
+  console.log("Contract address:", contract.address);
 
   // We also save the contract's artifacts and address in the frontend directory
-  saveFrontendFiles(token);
+  saveFrontendFiles(contract);
 }
 
-function saveFrontendFiles(token) {
+function saveFrontendFiles(contract) {
   const fs = require("fs");
   const contractsDir = path.join(__dirname, "..", "frontend", "src", "contracts");
 
@@ -42,14 +43,14 @@ function saveFrontendFiles(token) {
 
   fs.writeFileSync(
     path.join(contractsDir, "contract-address.json"),
-    JSON.stringify({ Token: token.address }, undefined, 2)
+    JSON.stringify({ Contract: contract.address }, undefined, 2)
   );
 
-  const TokenArtifact = artifacts.readArtifactSync("Token");
+  const ContractArtifact = artifacts.readArtifactSync("BBSStories");
 
   fs.writeFileSync(
-    path.join(contractsDir, "Token.json"),
-    JSON.stringify(TokenArtifact, null, 2)
+    path.join(contractsDir, "contract-abi.json"),
+    JSON.stringify(ContractArtifact, null, 2)
   );
 }
 
